@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# env & secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# logs & OS noise
+*.log
+.DS_Store
+
+# editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
