@@ -19,7 +19,12 @@ Antworten auf die offenen Punkte (CLAUDE.md §17) und Stack-Entscheidungen. Quel
 
 - **A — Next.js 16** statt 15 (Next 15 Security-EOL 2026-10-21). `proxy.ts` statt `middleware.ts`, `await params`/`await headers()`, Turbopack default.
 - **B — Eskalationsmodell `claude-sonnet-5`** (statt `claude-sonnet-4-6`, per ENV überschreibbar). Konsequenz: `temperature` wird nur bei Haiku gesetzt; Request-Builder strippt sie bei Sonnet 5 (sonst 400).
-- **C — Worker-DB via Supavisor Session-Mode-Pooler** (`…pooler.supabase.com:5432`, Username `postgres.[ref]`). Kein Transaction-Mode (6543), kein IPv4-Add-on nötig.
+- **C — Worker-DB via Supavisor Session-Mode-Pooler** — durch Entscheidung D obsolet; `DATABASE_URL` wird nur noch für Migrationen gebraucht.
+- **D — Deployment vollständig auf Vercel** (Entscheidung Philipp 2026-07-09, gegen die Hybrid-Empfehlung — bewusst gewählt). Konsequenzen:
+  - `apps/worker`, pg-boss, Dockerfiles und docker-compose entfallen. Queue = eigene Postgres-**Jobs-Tabelle** (`FOR UPDATE SKIP LOCKED`, Retry/Backoff/`dead`-Status in SQL) in Supabase — kein Redis, kein externer Queue-Dienst.
+  - Verarbeitung in Vercel Functions: direkt nach Ingest angestoßen (`after()` aus `next/server`) + minütlicher Cron-Sweeper (`CRON_SECRET`-geschützt, GET, UTC). **Minuten-Crons erfordern Vercel Pro** (Hobby: nur täglich ±59 min — untauglich; Pro ohnehin nötig: kommerzielle Nutzung + DPA). Cron-Zustellung ist best-effort inkl. möglicher Duplikate → Claiming via `FOR UPDATE SKIP LOCKED` fängt das ab.
+  - E-Mail-Ingest: IMAP-**Polling** per Cron statt IDLE → bis ~1 Min Latenz. SMTP-Versand aus Vercel Functions: offiziell erlaubt außer Port 25 → Auto-Reply über Postfach-SMTP (465/587) funktioniert; Versand vor Response-Ende bzw. in `after()`.
+  - DSGVO: Vercel wird Subprozessor in der AVV-Kette; Function-Region fra1 (Frankfurt), CDN/Edge bleibt global.
 
 ## Noch offen (nicht blockierend für Phase 0)
 

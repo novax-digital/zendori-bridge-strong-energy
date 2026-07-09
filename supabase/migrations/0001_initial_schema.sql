@@ -40,6 +40,9 @@ create type public.mailbox_auth_type as enum ('password', 'oauth2');
 
 create type public.actor_type as enum ('user', 'system');
 
+-- 'failed' = attempt failed, retry scheduled via run_after; 'dead' = retries exhausted
+create type public.job_status as enum ('queued', 'processing', 'succeeded', 'failed', 'dead');
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -279,6 +282,104 @@ create index audit_log_created_at_idx on public.audit_log (created_at desc);
 create index audit_log_entity_idx on public.audit_log (entity, entity_id);
 
 -- ---------------------------------------------------------------------------
+-- jobs — Postgres job queue (§5, Vercel variant; docs/entscheidungen.md D).
+-- Claimed atomically via claim_due_jobs() (FOR UPDATE SKIP LOCKED) from
+-- Vercel Functions; a minutely cron sweeper retries due jobs and releases
+-- stuck leases. Constants mirrored in packages/core/src/jobs.ts.
+-- ---------------------------------------------------------------------------
+create table public.jobs (
+  id uuid primary key default gen_random_uuid(),
+  -- Pipeline step: extract | contact_upsert | dedup_check | deliver | confirm
+  step text not null,
+  message_id uuid not null references public.inbound_messages (id) on delete cascade,
+  correlation_id uuid not null,
+  status public.job_status not null default 'queued',
+  attempts integer not null default 0,
+  max_attempts integer not null default 5,
+  run_after timestamptz not null default now(),
+  claimed_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index jobs_due_idx on public.jobs (run_after)
+  where status in ('queued', 'failed');
+create index jobs_message_id_idx on public.jobs (message_id);
+create index jobs_status_idx on public.jobs (status);
+
+create trigger jobs_set_updated_at
+  before update on public.jobs
+  for each row execute function public.set_updated_at();
+
+comment on table public.jobs is
+  'Pipeline job queue, processed by Vercel Functions (immediate kick + cron sweeper).';
+
+-- Exponential backoff: 15s, 30s, 60s, 120s, ... after the n-th attempt
+create function public.job_retry_delay(attempt_count integer)
+returns interval
+language sql
+immutable
+as $$
+  select make_interval(secs => 15 * power(2, greatest(attempt_count - 1, 0)));
+$$;
+
+-- Atomically claim due jobs (queued/failed with run_after reached).
+-- Increments attempts and marks them processing; concurrent sweepers never
+-- claim the same job thanks to FOR UPDATE SKIP LOCKED.
+create function public.claim_due_jobs(batch_size integer default 10)
+returns setof public.jobs
+language sql
+volatile
+as $$
+  update public.jobs j
+  set status = 'processing',
+      claimed_at = now(),
+      attempts = j.attempts + 1,
+      updated_at = now()
+  where j.id in (
+    select id
+    from public.jobs
+    where status in ('queued', 'failed')
+      and run_after <= now()
+    order by run_after
+    limit batch_size
+    for update skip locked
+  )
+  returning j.*;
+$$;
+
+-- Release jobs whose function crashed or timed out (lease expired): schedule
+-- a retry with backoff, or mark dead when retries are exhausted.
+create function public.release_stuck_jobs(lease_seconds integer default 300)
+returns integer
+language plpgsql
+volatile
+as $$
+declare
+  released integer;
+begin
+  update public.jobs
+  set status = case when attempts >= max_attempts then 'dead' else 'failed' end,
+      run_after = now() + public.job_retry_delay(attempts),
+      last_error = coalesce(last_error, 'lease expired (function crash or timeout)'),
+      claimed_at = null,
+      updated_at = now()
+  where status = 'processing'
+    and claimed_at < now() - make_interval(secs => lease_seconds);
+  get diagnostics released = row_count;
+  return released;
+end;
+$$;
+
+-- Job mutation is reserved for the server (service key). Functions are
+-- executable by PUBLIC by default — revoke explicitly.
+revoke execute on function public.claim_due_jobs(integer) from public, anon, authenticated;
+revoke execute on function public.release_stuck_jobs(integer) from public, anon, authenticated;
+revoke execute on function public.job_retry_delay(integer) from public, anon, authenticated;
+revoke execute on function public.generate_ticket_ref() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Row Level Security (§6/§12)
 --
 -- Model: the dashboard (authenticated users) may READ operational data;
@@ -296,6 +397,7 @@ alter table public.mailboxes enable row level security;
 alter table public.form_api_keys enable row level security;
 alter table public.app_settings enable row level security;
 alter table public.audit_log enable row level security;
+alter table public.jobs enable row level security;
 
 create policy "authenticated read" on public.inbound_messages
   for select to authenticated using (true);
@@ -314,6 +416,8 @@ create policy "authenticated read" on public.form_api_keys
 create policy "authenticated read" on public.app_settings
   for select to authenticated using (true);
 create policy "authenticated read" on public.audit_log
+  for select to authenticated using (true);
+create policy "authenticated read" on public.jobs
   for select to authenticated using (true);
 
 -- Column-level hardening: dashboard users may list mailboxes but never read

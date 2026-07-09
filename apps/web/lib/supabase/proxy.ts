@@ -34,7 +34,12 @@ export async function updateSession(request: NextRequest) {
   const isAuthenticated = Boolean(data?.claims);
 
   const { pathname } = request.nextUrl;
-  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/healthz');
+  // /api/* routes authenticate themselves (CRON_SECRET, form API keys,
+  // webhook signatures) — the dashboard session gate does not apply there.
+  const isPublic =
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/healthz') ||
+    pathname.startsWith('/api/');
 
   if (!isAuthenticated && !isPublic) {
     const url = request.nextUrl.clone();

@@ -6,13 +6,12 @@ Eigenständige Intake-Bridge: Anfragen aus Kontaktformular, E-Mail, Paste-Inbox 
 
 ## Struktur
 
-| Pfad                  | Inhalt                                                                                             |
-| --------------------- | -------------------------------------------------------------------------------------------------- |
-| `apps/web`            | Next.js 16 (App Router): Dashboard, Login (Supabase Auth), später alle Ingest-Webhooks             |
-| `apps/worker`         | Node-22-Prozess: pg-boss-Pipeline, später IMAP-Ingest                                              |
-| `packages/core`       | Geteilte Contracts: Types, `TicketSink`-Interface, Queue-Definitionen, Env-Parsing, Logger, Crypto |
-| `supabase/migrations` | Versionierte SQL-Migrationen (werden vor Ausführung reviewt)                                       |
-| `docs/`               | Architektur, Entscheidungslog, Stack-Verifikation                                                  |
+| Pfad                  | Inhalt                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `apps/web`            | Next.js 16 (App Router): Dashboard, Login (Supabase Auth), Job-Runner, Cron-Sweeper, später Ingest-Webhooks |
+| `packages/core`       | Geteilte Contracts: Types, `TicketSink`-Interface, Job-Queue-Definitionen, Env-Parsing, Logger, Crypto      |
+| `supabase/migrations` | Versionierte SQL-Migrationen (werden vor Ausführung reviewt)                                                |
+| `docs/`               | Architektur, Entscheidungslog, Stack-Verifikation                                                           |
 
 ## Setup (lokal)
 
@@ -21,13 +20,10 @@ Voraussetzungen: Node ≥ 22.12 und pnpm. pnpm ohne Installation nutzbar via `co
 ```sh
 pnpm install
 cp .env.example .env        # Werte eintragen (siehe ENV-Referenz unten)
-pnpm --filter @zendori/core build
 
-# Web-Dashboard (http://localhost:3000)
+# Web-Dashboard (http://localhost:3000) — baut @zendori/core automatisch mit
+pnpm --filter @zendori/web build
 pnpm --filter @zendori/web dev
-
-# Worker (braucht DATABASE_URL + ENCRYPTION_KEY in .env)
-pnpm --filter @zendori/worker dev
 ```
 
 Qualität: `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm format:check`
@@ -36,31 +32,29 @@ Qualität: `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm format:check`
 
 Vollständig kommentiert in [.env.example](.env.example). Wichtigste Regeln:
 
-- `DATABASE_URL`: **Supavisor Session-Pooler** (Port 5432, Username `postgres.<project-ref>`) oder Direct Connection. Niemals den Transaction-Pooler (Port 6543) — inkompatibel mit pg-boss; die Env-Validierung lehnt ihn ab.
-- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`: für die Web-App (Publishable Key). `SUPABASE_SERVICE_ROLE_KEY` (Secret Key) wird **nur** vom Worker genutzt und niemals in der Web-App.
+- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Publishable Key für die Web-App. `SUPABASE_SERVICE_ROLE_KEY` (Secret Key) wird **nur** serverseitig genutzt (Job-Runner, Cron, später Ingest/Sink) und erreicht nie den Browser.
+- `CRON_SECRET`: sichert die Cron-Endpoints ab — Vercel sendet ihn automatisch als `Authorization: Bearer …`.
 - `ENCRYPTION_KEY`: 32 Byte hex (`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`). Verschlüsselt Postfach-Credentials at rest.
+- `DATABASE_URL`: nur für Migrationen via psql (Session-Pooler Port 5432 oder Direct Connection).
 - Postfach-Zugänge stehen **nicht** in der ENV — sie werden verschlüsselt in der DB verwaltet (ab Phase 1 über die Settings-UI).
 
 ## Migrationen
 
-Migrationen liegen in `supabase/migrations/` und werden erst nach Review ausgeführt — manuell über den Supabase-SQL-Editor oder `psql "$DATABASE_URL" -f supabase/migrations/0001_initial_schema.sql`. Das `pgboss`-Schema legt der Worker beim ersten Start selbst an und migriert es selbstständig.
+Migrationen liegen in `supabase/migrations/` und werden erst nach Review ausgeführt — manuell über den Supabase-SQL-Editor oder `psql "$DATABASE_URL" -f supabase/migrations/0001_initial_schema.sql`.
 
-## Deployment (Hetzner, Docker Compose hinter Traefik)
+## Deployment (Vercel)
 
-```sh
-cp .env.example .env   # produktive Werte
-docker compose build
-docker compose up -d
-```
-
-- Web ist über Traefik unter `https://strongenergy.zendori.ai` erreichbar (`BRIDGE_HOST`, `TRAEFIK_NETWORK`, `TRAEFIK_CERTRESOLVER` in `.env` anpassbar; Default-Netzwerk `traefik` muss existieren).
-- Der Worker hat keinen Ingress; Healthcheck läuft containerintern gegen `:8081/healthz`.
-- Healthchecks: `GET /healthz` (web, öffentlich) und `GET :8081/healthz` (worker, intern — meldet pg-boss-Status und ab Phase 1 die letzte IMAP-Poll-Zeit pro Postfach).
+1. Repo bei Vercel importieren, **Root Directory: `apps/web`** (Standard-Einstellung „Include source files outside of the Root Directory" muss aktiv bleiben, damit `packages/core` verfügbar ist).
+2. **Vercel Pro** verwenden — der minütliche Sweeper-Cron läuft auf Hobby nicht (dort nur tägliche Crons), und die kommerzielle Nutzung/DPA setzt Pro ohnehin voraus.
+3. Alle ENV-Variablen aus `.env.example` in den Projekt-Settings hinterlegen (insb. `CRON_SECRET`).
+4. Domain `strongenergy.zendori.ai` per CNAME auf Vercel zeigen lassen und im Projekt hinterlegen.
+5. Function-Region ist per `apps/web/vercel.json` auf Frankfurt (`fra1`) gepinnt; der Cron `/api/cron/sweep` (minütlich, UTC) ist dort ebenfalls definiert. Hinweis: Routing-Middleware (`proxy.ts`) und CDN laufen global — Compute/Daten liegen in fra1/EU.
+6. Optional: Projekt-ENV `ENABLE_EXPERIMENTAL_COREPACK=1`, damit Vercel exakt die pnpm-Version aus `packageManager` nutzt (sonst wählt Vercel anhand der Lockfile-Version).
 
 ## Backup & Datenschutz (Kurzfassung)
 
-- Postgres-Backups übernimmt Supabase (Plan-abhängig); zusätzlich empfohlen: regelmäßiger `pg_dump` vom Hetzner-Host.
-- Subprozessor-Kette für den AVV (Novax ↔ Strong Energy): Supabase (EU), Anthropic, ab Phase 2 Twilio, Vapi, ElevenLabs, Deepgram. Details folgen mit den jeweiligen Phasen.
+- Postgres-Backups übernimmt Supabase (Plan-abhängig).
+- Subprozessor-Kette für den AVV (Novax ↔ Strong Energy): **Vercel** (DPA: vercel.com/legal/dpa; Functions in fra1, CDN global), Supabase (EU), Anthropic; ab Phase 2 Twilio, Vapi, ElevenLabs, Deepgram.
 - Löschfristen sind in `app_settings` konfiguriert (Default: Rohnachrichten 90 Tage, Recordings 30 Tage); der tägliche Lösch-Job kommt in Phase 1.5.
 
 ## Übergabe-Checkliste (wächst pro Phase)

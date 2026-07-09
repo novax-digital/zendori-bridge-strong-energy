@@ -8,9 +8,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except static assets and the healthcheck. Ingest webhooks
-  // (Phase 1) authenticate per-request and get added here as exclusions.
+  // Everything except static assets, the healthcheck, and /api/* — API routes
+  // (cron, later ingest webhooks) authenticate per-request, not via session.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|healthz|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!api/|_next/static|_next/image|favicon.ico|healthz|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

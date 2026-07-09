@@ -42,7 +42,7 @@ Du bist Senior Software Engineer und technischer Lead für dieses Projekt. Du ar
 
 ## 4. Stack (verbindlich — Abweichungen nur nach Rücksprache)
 
-> Aktualisiert am 2026-07-09 nach Freigabe (siehe `docs/entscheidungen.md`): Next.js 15 → 16, Eskalationsmodell → `claude-sonnet-5`, Worker-DB-Verbindung via Supavisor Session-Pooler.
+> Aktualisiert am 2026-07-09 nach Freigabe (siehe `docs/entscheidungen.md`): Next.js 15 → 16, Eskalationsmodell → `claude-sonnet-5`, **Deployment vollständig auf Vercel** — dadurch entfällt der dauerlaufende Worker; pg-boss wird durch eine Postgres-Jobs-Tabelle ersetzt, E-Mail-Ingest läuft als Cron-Polling statt IMAP-IDLE.
 
 Bereich
 Entscheidung
@@ -51,19 +51,19 @@ Sprache
 TypeScript strict, durchgängig
 
 Repo
-pnpm-Monorepo: `apps/web`, `apps/worker`, `packages/core`
+pnpm-Monorepo: `apps/web`, `packages/core`
 
 Frontend + Webhooks
 Next.js 16 (App Router); Route Handlers für alle Ingest-Webhooks
 
-Worker
-Node 22 Prozess für IMAP-Ingest + Job-Verarbeitung
+Verarbeitung (statt Worker)
+Vercel Functions: Pipeline-Steps laufen als Job-Runner in Route Handlers — direkt nach Ingest angestoßen (`waitUntil`), plus minütlicher Vercel-Cron als Sweeper (Retries, fällige Jobs, IMAP-Poll)
 
 DB / Auth / Storage
 Supabase Cloud (EU-Region): Postgres, Auth, RLS, Storage
 
 Queue
-pg-boss (Postgres-basiert — bewusst kein Redis, weniger Infrastruktur)
+Postgres-Jobs-Tabelle in Supabase (`FOR UPDATE SKIP LOCKED`-Claiming, Retry mit exponentiellem Backoff, max. 5, danach `dead` + Alarm) — bewusst kein Redis und kein externer Queue-Dienst
 
 KI
 Anthropic API. Standard: `claude-haiku-4-5` für Extraktion/Klassifikation/Dedup-Judge, Eskalation auf `claude-sonnet-5` nur bei niedriger Konfidenz (beide per ENV überschreibbar). **Native Structured Outputs** nutzen — `output_config.format` mit `type: "json_schema"` (GA, auch für Haiku 4.5) garantiert schemakonformes JSON; Ergebnis trotzdem per Zod parsen (Defense in Depth). **Prompt Caching für Systemprompts aktivieren** (Achtung: Haiku cached erst ab 4.096 Token Präfix). `temperature: 0` **nur bei Haiku** — Sonnet 5 lehnt Nicht-Default-Sampling-Parameter mit 400 ab; der Request-Builder strippt `temperature` modellabhängig.
@@ -78,7 +78,7 @@ UI
 Tailwind + shadcn/ui, deutschsprachig, funktional-dicht, kein Overengineering
 
 Deployment
-Docker Compose auf Hetzner hinter Traefik (bestehende Infrastruktur), getrennte Container `web` und `worker`, Healthchecks, Restart-Policies
+Vercel (Function-Region Frankfurt/fra1, Domain `strongenergy.zendori.ai`); Vercel Cron für Sweeper + Mail-Polling. Achtung DSGVO: Vercel kommt als Subprozessor in die AVV-Kette
 
 Codequalität
 ESLint + Prettier (Agentur-Standard), Zod-Validierung an allen Systemgrenzen
@@ -170,7 +170,7 @@ pgvector-Embeddings nur nachrüsten, falls die Trefferqualität nachweislich nic
 
 ### 10.2 E-Mail-Postfächer (Phase 1)
 
-- Worker: pro Postfach IMAP-Verbindung (imapflow), IDLE mit Poll-Fallback (60 s), UID-Tracking (`last_uid`), verarbeitete Mails flaggen/verschieben
+- Mail-Poll-Cron (minütlich, Vercel): pro Postfach IMAP-Verbindung öffnen (imapflow), neue Mails seit `last_uid` holen, Verbindung schließen. Kein IDLE (serverless) — max. ~1 Minute Ingest-Latenz. Verarbeitete Mails flaggen/verschieben.
 - Parsing mit mailparser; Reply-/Signatur-Stripping vor der Extraktion; Anhänge → Supabase Storage (Größenlimit, Whitelist an Dateitypen), Links ins Ticket
 - **Auto-Reply** (nodemailer/SMTP) mit Ticket-Ref im Betreff `[ZV1-####]` — Vorlage in app_settings, pro Postfach abschaltbar. **Loop-Schutz:** keine Auto-Reply auf Auto-Replies/Out-of-Office (`Auto-Submitted`, `X-Auto-Response-Suppress`, Precedence-Header beachten).
 - **Auth-Verfahren klären, bevor du implementierst:** Klassisches IMAP-Passwort ODER OAuth2. Microsoft 365 hat Basic Auth für IMAP deaktiviert — liegen Kundenpostfächer auf M365, ist OAuth2 (Client Credentials Flow) Pflicht. Gmail: App-Passwort bei aktivierter 2FA. → Rückfrage an mich mit dem Provider-Ergebnis.
@@ -214,7 +214,7 @@ pgvector-Embeddings nur nachrüsten, falls die Trefferqualität nachweislich nic
 
 ## 12. Sicherheit & DSGVO
 
-- EU-Hosting: Hetzner + Supabase EU-Region. README dokumentiert die Subprozessor-Kette für den AVV (Novax ↔ Kunde; Subprozessoren: Supabase, Anthropic, Twilio, Vapi, ElevenLabs, Deepgram).
+- Hosting: Vercel (Function-Region Frankfurt; CDN/Edge global) + Supabase EU-Region. README dokumentiert die Subprozessor-Kette für den AVV (Novax ↔ Kunde; Subprozessoren: Vercel, Supabase, Anthropic, Twilio, Vapi, ElevenLabs, Deepgram).
 - Secrets ausschließlich per ENV; Postfach-Credentials verschlüsselt at rest; **PII-Maskierung in Logs**
 - Webhook-Härtung: Twilio-Signatur, Vapi-Secret, Form-API-Keys (gehasht gespeichert), Rate-Limits auf allen Ingest-Endpoints
 - RLS überall; Worker nutzt Service-Role, Web-App nie
@@ -225,13 +225,13 @@ pgvector-Embeddings nur nachrüsten, falls die Trefferqualität nachweislich nic
 
 - Tests (gezielt, nicht flächendeckend): Extraktions-Schema-Validierung, Dedup-Heuristik, E-Mail-Stripping, Webhook-Signaturprüfung, HubSpot-Client gegen Mock
 - Strukturierte Logs (pino) mit Correlation-ID; Fehlerpfade enden sichtbar (Status `failed` + Dashboard-Alarm + optionale Admin-Mail)
-- `GET /healthz` für web und worker (worker meldet u. a. letzte IMAP-Poll-Zeit pro Postfach)
-- Docker Compose mit Traefik-Labels, Healthchecks, Restart-Policies; `.env.example` vollständig
+- `GET /healthz` für web (meldet u. a. letzte IMAP-Poll-Zeit pro Postfach und Job-Rückstau, sobald Phase 1 steht)
+- `vercel.json` mit Cron-Definitionen und Region; `.env.example` vollständig; Cron-Endpoints per `CRON_SECRET` abgesichert
 - README als Runbook: Setup, ENV-Referenz, Deployment auf Hetzner, Backup-Hinweis, Übergabe-Checkliste für den Kunden
 
 ## 14. ENV-Referenz (Werte liefere ich)
 
-`NEXT_PUBLIC_APP_URL`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `HUBSPOT_TOKEN`, `HUBSPOT_PIPELINE_ID`, `HUBSPOT_STAGE_ID`, `ENCRYPTION_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET`, `ADMIN_ALERT_EMAIL` — Postfach-Zugänge werden in der DB verwaltet (verschlüsselt), nicht per ENV.
+`NEXT_PUBLIC_APP_URL`, `DATABASE_URL` (nur Migrationen), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ANTHROPIC_API_KEY`, `HUBSPOT_TOKEN`, `HUBSPOT_PIPELINE_ID`, `HUBSPOT_STAGE_ID`, `ENCRYPTION_KEY`, `CRON_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `VAPI_API_KEY`, `VAPI_WEBHOOK_SECRET`, `ADMIN_ALERT_EMAIL` — Postfach-Zugänge werden in der DB verwaltet (verschlüsselt), nicht per ENV.
 
 ---
 
