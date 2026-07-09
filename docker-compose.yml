@@ -1,0 +1,37 @@
+# Zendori v1 — deployment on Hetzner behind an existing Traefik (CLAUDE.md §13).
+# Adjust TRAEFIK_NETWORK / TRAEFIK_CERTRESOLVER / BRIDGE_HOST via .env if the
+# host setup differs from the defaults below.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+    networks:
+      - internal
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - traefik.http.routers.zendori-web.rule=Host(`${BRIDGE_HOST:-strongenergy.zendori.ai}`)
+      - traefik.http.routers.zendori-web.entrypoints=websecure
+      - traefik.http.routers.zendori-web.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      - traefik.http.services.zendori-web.loadbalancer.server.port=3000
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+    # No ingress: the worker only polls (IMAP, pg-boss) and exposes /healthz internally.
+    networks:
+      - internal
+
+networks:
+  internal:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
