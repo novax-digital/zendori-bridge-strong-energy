@@ -25,6 +25,14 @@ test('tampered ciphertext is rejected', () => {
   assert.throws(() => decryptSecret(tampered, key));
 });
 
+test('truncated auth tag is rejected', () => {
+  const encrypted = encryptSecret('secret', key);
+  const parts = encrypted.split('.');
+  const shortTag = Buffer.from(parts[2]!, 'base64').subarray(0, 4).toString('base64');
+  const truncated = [parts[0], parts[1], shortTag, parts[3]].join('.');
+  assert.throws(() => decryptSecret(truncated, key));
+});
+
 test('wrong key is rejected', () => {
   const encrypted = encryptSecret('secret', key);
   const otherKey = randomBytes(32).toString('hex');

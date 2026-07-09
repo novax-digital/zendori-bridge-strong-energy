@@ -11,7 +11,8 @@ const FEHLERMELDUNGEN: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fehler?: string }>;
+  // Next delivers arrays for repeated query params — handle both shapes.
+  searchParams: Promise<{ fehler?: string | string[] }>;
 }) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
@@ -20,7 +21,11 @@ export default async function LoginPage({
   }
 
   const { fehler } = await searchParams;
-  const fehlermeldung = fehler ? FEHLERMELDUNGEN[fehler] : undefined;
+  // Object.hasOwn guards against prototype keys (?fehler=constructor would
+  // otherwise resolve to a function and crash the render).
+  const fehlerKey = typeof fehler === 'string' ? fehler : undefined;
+  const fehlermeldung =
+    fehlerKey && Object.hasOwn(FEHLERMELDUNGEN, fehlerKey) ? FEHLERMELDUNGEN[fehlerKey] : undefined;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-50 p-4">

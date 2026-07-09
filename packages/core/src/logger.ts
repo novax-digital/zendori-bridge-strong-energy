@@ -2,34 +2,33 @@ import { pino, type Logger } from 'pino';
 
 /**
  * Structured logging (CLAUDE.md §13): pino with a correlation ID per message
- * and PII masking (§12) — sender addresses/phone numbers and any secret-ish
- * fields never reach the log sink in clear text.
+ * and PII masking (§12). Redaction is DEFENSE IN DEPTH, not a guarantee:
+ * pino's `*` wildcard matches exactly one path segment, so the paths below
+ * cover sensitive keys up to three levels deep. Handlers must still log
+ * explicitly picked fields — never whole raw channel payloads or DB rows.
  */
 
-const PII_AND_SECRET_PATHS = [
+const SENSITIVE_KEYS = [
   // secrets
   'password',
   'secret',
   'token',
   'authToken',
   'apiKey',
-  '*.password',
-  '*.secret',
-  '*.token',
-  '*.authToken',
-  '*.apiKey',
   // PII
   'email',
   'phone',
   'senderEmail',
   'senderPhone',
   'senderName',
-  '*.email',
-  '*.phone',
-  '*.senderEmail',
-  '*.senderPhone',
-  '*.senderName',
 ];
+
+const PII_AND_SECRET_PATHS = SENSITIVE_KEYS.flatMap((key) => [
+  key,
+  `*.${key}`,
+  `*.*.${key}`,
+  `*.*.*.${key}`,
+]);
 
 export interface CreateLoggerOptions {
   /** Service name, e.g. "worker" or "web". */

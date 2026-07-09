@@ -37,9 +37,7 @@ export async function updateSession(request: NextRequest) {
   // /api/* routes authenticate themselves (CRON_SECRET, form API keys,
   // webhook signatures) — the dashboard session gate does not apply there.
   const isPublic =
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/healthz') ||
-    pathname.startsWith('/api/');
+    pathname.startsWith('/login') || pathname === '/healthz' || pathname.startsWith('/api/');
 
   if (!isAuthenticated && !isPublic) {
     const url = request.nextUrl.clone();

@@ -8,9 +8,12 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except static assets, the healthcheck, and /api/* — API routes
+  // Everything except static assets, exactly /healthz, and /api/* — API routes
   // (cron, later ingest webhooks) authenticate per-request, not via session.
+  // NOTE: paths ending in an image extension bypass the session gate — any
+  // Phase-1 route serving user content must live under /api/* with its own
+  // auth or behind signed URLs, never rely on this proxy.
   matcher: [
-    '/((?!api/|_next/static|_next/image|favicon.ico|healthz|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!api/|_next/static|_next/image|favicon.ico|healthz$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

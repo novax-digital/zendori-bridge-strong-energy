@@ -150,11 +150,15 @@ create table public.tickets (
   category text not null,
   priority text not null,
   source_channel public.channel_type not null,
-  first_message_id uuid references public.inbound_messages (id),
+  -- ON DELETE SET NULL: the retention job (§12) deletes raw messages after
+  -- 90 days; ticket mirror rows outlive them, losing only this pointer.
+  first_message_id uuid references public.inbound_messages (id) on delete set null,
   created_at timestamptz not null default now()
 );
 
 create index tickets_created_at_idx on public.tickets (created_at desc);
+-- Supports the SET NULL enforcement scan when the retention job deletes messages
+create index tickets_first_message_id_idx on public.tickets (first_message_id);
 create index tickets_subject_trgm_idx
   on public.tickets using gin (subject extensions.gin_trgm_ops);
 create index tickets_description_trgm_idx
@@ -168,20 +172,18 @@ comment on table public.tickets is
 -- ---------------------------------------------------------------------------
 create table public.contacts_cache (
   id uuid primary key default gen_random_uuid(),
-  email text,
-  phone text,
+  -- Stored lowercased (check below) so the plain unique constraint works AND
+  -- can be targeted by PostgREST upserts (onConflict: 'email') — a partial
+  -- expression index on lower(email) could not. Normalization happens app-side.
+  email text unique,
+  -- Normalized app-side (E.164) before writing.
+  phone text unique,
   hubspot_contact_id text not null,
   name text,
   last_synced_at timestamptz not null default now(),
-  constraint contacts_cache_needs_identifier check (email is not null or phone is not null)
+  constraint contacts_cache_needs_identifier check (email is not null or phone is not null),
+  constraint contacts_cache_email_lowercase check (email = lower(email))
 );
-
-create unique index contacts_cache_email_key
-  on public.contacts_cache (lower(email))
-  where email is not null;
-create unique index contacts_cache_phone_key
-  on public.contacts_cache (phone)
-  where phone is not null;
 
 -- ---------------------------------------------------------------------------
 -- dedup_decisions — audit trail of the three-stage dedup (§6/§8)
@@ -422,6 +424,11 @@ create policy "authenticated read" on public.jobs
 
 -- Column-level hardening: dashboard users may list mailboxes but never read
 -- the encrypted credential column (defense in depth on top of app-side crypto).
+-- CONSEQUENCES for app code and future migrations:
+--   * Dashboard queries on mailboxes MUST enumerate columns — a select('*')
+--     (the supabase-js default!) fails with 42501 "permission denied".
+--   * Every future ALTER TABLE mailboxes ADD COLUMN needs an updated
+--     GRANT SELECT (...) in the same migration, or the column is unreadable.
 revoke select on public.mailboxes from authenticated;
 grant select (
   id, label, imap_host, imap_port, smtp_host, smtp_port, username,

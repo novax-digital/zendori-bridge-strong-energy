@@ -30,6 +30,8 @@ export async function signIn(formData: FormData): Promise<void> {
 
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  // scope 'local' clears the session cookies even when the token-revoke
+  // endpoint is unreachable — a plain signOut() can silently keep the session.
+  await supabase.auth.signOut({ scope: 'local' });
   redirect('/login');
 }
