@@ -1,4 +1,4 @@
-import type { PipelineStep } from '@zendori/core';
+import { createLogger, type PipelineStep } from '@zendori/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { after } from 'next/server';
 
@@ -34,8 +34,13 @@ export function kickJobRunnerAfterResponse(): void {
   after(async () => {
     try {
       await runDueJobs();
-    } catch {
-      // Swallow: the sweeper retries; errors are logged inside runDueJobs.
+    } catch (error) {
+      // Never rethrow (the sweeper retries) — but log loudly: a silently
+      // failing kick masked a runner-blocking bug once already.
+      createLogger({ name: 'jobs.kick' }).error(
+        { err: error instanceof Error ? error.message : String(error) },
+        'post-response job kick failed — cron sweeper will retry',
+      );
     }
   });
 }

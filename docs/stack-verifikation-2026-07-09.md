@@ -67,3 +67,15 @@ Legende: ✅ Annahme aus CLAUDE.md bestätigt · ⚠️ abweichend / Korrektur n
 ### Empfohlene Pins (Stand 2026-07-09)
 
 `next@16.2.10` (Alternative: 15.5.20, EOL 10/2026) · `pg-boss@12.25.1` · `imapflow@1.4.6` · `mailparser@3.9.14` · `nodemailer@9.0.3` · Node-Image `22.x ≥ 22.12`
+
+## Microsoft 365 / Exchange Online (ergänzt 2026-07-10 — Kundenpostfächer liegen auf M365!)
+
+- ⚠️ **IMAP Basic Auth: endgültig tot.** Seit 2023 in allen Tenants deaktiviert, kein Re-Enable möglich (weder Kunde noch Microsoft-Support). OAuth2 (XOAUTH2) ist der einzige Weg.
+  https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/deprecation-of-basic-authentication-exchange-online
+- ⚠️ **SMTP AUTH Basic: noch nicht ganz tot, aber praktisch nutzlos.** Bei Security Defaults bereits deaktiviert (→ unser 535 5.7.3); disabled-by-default ab Ende Dez 2026, Entfernung H2 2027. OAuth-XOAUTH2 über `smtp.office365.com:587` bleibt voll unterstützt.
+- ✅ **Der richtige Weg (unattended): Client-Credentials-Flow gegen „Office 365 Exchange Online"** (NICHT Graph): App-Permissions `IMAP.AccessAsApp` + `SMTP.SendAsApp`, Admin-Consent, dann in Exchange PowerShell `New-ServicePrincipal` (⚠️ Object-ID der **Enterprise Application**, nicht der App-Registrierung!) + pro Postfach `Add-MailboxPermission … -AccessRights FullAccess` und fürs Senden `Add-RecipientPermission … SendAs`.
+  https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth
+- ✅ **Token:** `POST login.microsoftonline.com/{tenant}/oauth2/v2.0/token`, `grant_type=client_credentials`, Scope exakt `https://outlook.office365.com/.default` (ein Token für IMAP+SMTP). Laufzeit 60–90 min → cachen, kein Refresh-Token in diesem Flow.
+- ✅ **Bibliotheken:** imapflow `auth: { user: <mailbox>, accessToken }` spricht nativ XOAUTH2 (Source-verifiziert); nodemailer ebenso (`auth: { type: 'OAuth2', user, accessToken }`).
+- ⚠️ **Graph `sendMail` bewusst NICHT gewählt:** eigene Header nur mit `x-`-Präfix erlaubt — `Auto-Submitted`/`In-Reply-To` (Loop-Schutz!) gingen nur über umständlichen MIME-Upload. SMTP-XOAUTH2 erhält unseren Versandcode 1:1.
+- Hinweis Least-Privilege: FullAccess/SendAs gelten nur für die explizit freigegebenen Postfächer — genau richtig für 2 Postfächer.
