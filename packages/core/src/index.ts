@@ -5,6 +5,7 @@ export * from './env.js';
 export * from './logger.js';
 export * from './crypto.js';
 export * from './ticket-schema.js';
+export * from './pii-redaction.js';
 export * from './extraction.js';
 export * from './prompts/extraction.js';
 export * from './hubspot.js';

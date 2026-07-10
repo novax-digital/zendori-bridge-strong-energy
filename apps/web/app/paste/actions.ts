@@ -55,10 +55,15 @@ export async function analysePaste(formData: FormData): Promise<void> {
   }
 
   const admin = createAdminClient();
+  // Contact data is pulled from the pasted text DETERMINISTICALLY (regex) so
+  // the AI call can run fully redacted (PII stays local).
+  const detected = detectContactInText(text);
   const result = await insertInboundMessage(
     {
       channel: 'paste',
       externalId: crypto.randomUUID(),
+      senderEmail: detected.email,
+      senderPhone: detected.phone,
       bodyText: text,
       raw: { context_note: kontext || null },
       receivedAt: new Date().toISOString(),
@@ -269,4 +274,13 @@ export async function discardPaste(formData: FormData): Promise<void> {
   );
 
   redirect('/paste');
+}
+
+/** First e-mail address / phone-looking number in the pasted text (German formats). */
+function detectContactInText(text: string): { email: string | null; phone: string | null } {
+  const email = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?.[0] ?? null;
+  const phoneMatch = text.match(/(?:\+|0)[\d\s\-/().]{5,20}\d/);
+  const phone =
+    phoneMatch && phoneMatch[0].replace(/\D/g, '').length >= 7 ? phoneMatch[0].trim() : null;
+  return { email, phone };
 }

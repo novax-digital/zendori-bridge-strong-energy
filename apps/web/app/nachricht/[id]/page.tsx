@@ -122,6 +122,43 @@ export default async function NachrichtDetailPage({ params }: { params: Promise<
   const dedupDecisions = (dedupRes.data ?? []) as DedupRow[];
   const ticket = (ticketRes.data as TicketRow | null) ?? null;
 
+  // "Was wurde an HubSpot übermittelt": audit entry of the deliver step +
+  // deep link built from portal info captured during the connection test.
+  interface DeliveryInfo {
+    created_at: string;
+    payload: {
+      hubspotTicketId?: string | null;
+      submitted?: Record<string, string | null>;
+    } | null;
+  }
+  let delivery: DeliveryInfo | null = null;
+  let hubspotLink: string | null = null;
+  if (ticket) {
+    const { data: auditRow } = await supabase
+      .from('audit_log')
+      .select('created_at, payload')
+      .eq('action', 'ticket_created')
+      .eq('entity', 'ticket')
+      .eq('entity_id', ticket.ticket_ref)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    delivery = (auditRow as DeliveryInfo | null) ?? null;
+    if (ticket.hubspot_ticket_id) {
+      const { data: cacheRow } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'hubspot_pipelines_cache')
+        .maybeSingle();
+      const health = (
+        cacheRow?.value as { health?: { portalId?: number; uiDomain?: string } } | null
+      )?.health;
+      if (health?.portalId && health?.uiDomain) {
+        hubspotLink = `https://${health.uiDomain}/contacts/${health.portalId}/ticket/${ticket.hubspot_ticket_id}`;
+      }
+    }
+  }
+
   const latest = extractions[0] ?? null;
   const questions =
     latest && Array.isArray(latest.questions)
@@ -276,7 +313,36 @@ export default async function NachrichtDetailPage({ params }: { params: Promise<
                 label="Priorität"
                 value={PRIORITY_LABELS[ticket.priority as TicketPriority] ?? ticket.priority}
               />
+              {delivery ? (
+                <div>
+                  <dt className="text-xs text-zinc-500">An HubSpot übermittelt</dt>
+                  <dd className="text-sm text-zinc-800">
+                    {receivedAtFormat.format(new Date(delivery.created_at))}
+                  </dd>
+                </div>
+              ) : null}
+              {delivery?.payload?.submitted ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs text-zinc-500">Übermittelte Felder</dt>
+                  <dd className="mt-1 font-mono text-xs text-zinc-700">
+                    {Object.entries(delivery.payload.submitted)
+                      .filter(([, v]) => v)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join(' · ')}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
+            {hubspotLink ? (
+              <a
+                href={hubspotLink}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+              >
+                Ticket in HubSpot öffnen ↗
+              </a>
+            ) : null}
           </section>
         ) : null}
 

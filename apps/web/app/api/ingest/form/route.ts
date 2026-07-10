@@ -159,11 +159,16 @@ export async function POST(request: Request): Promise<Response> {
         ? subjectField
         : `Kontaktformular: ${keyRow.site_label}`;
 
-    // Sender fields stay null — the extraction step fills contact data (§7).
+    // Contact data is mapped DETERMINISTICALLY from common field names — the
+    // AI never receives it (PII stays local; see docs/entscheidungen.md).
+    const contact = mapContactFields(payload);
     const result = await insertInboundMessage(
       {
         channel: 'form',
         externalId,
+        senderName: contact.name,
+        senderEmail: contact.email,
+        senderPhone: contact.phone,
         subject,
         bodyText: payloadToBodyText(payload),
         raw: { payload, site_label: keyRow.site_label, origin },
@@ -241,6 +246,28 @@ export async function OPTIONS(request: Request): Promise<Response> {
     log.error({ err: message }, 'form preflight failed');
     return new Response(null, { status: 204 });
   }
+}
+
+/** Best-effort mapping of common German/English form field names to contact data. */
+function mapContactFields(payload: Record<string, unknown>): {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+} {
+  const get = (patterns: RegExp[]): string | null => {
+    for (const [key, value] of Object.entries(payload)) {
+      if (typeof value !== 'string' || value.trim() === '') continue;
+      if (patterns.some((re) => re.test(key))) return value.trim();
+    }
+    return null;
+  };
+  const email = get([/^e-?mail$/i, /^mail$/i, /email/i]);
+  const phone = get([/^(telefon|phone|tel|handy|mobil|mobile|rufnummer)$/i, /(telefon|phone)/i]);
+  let name = get([/^name$/i, /^vollname$/i, /(vor|nach|full|last|first)?name/i]);
+  const first = typeof payload['firstName'] === 'string' ? payload['firstName'].trim() : '';
+  const last = typeof payload['lastName'] === 'string' ? payload['lastName'].trim() : '';
+  if (first || last) name = `${first} ${last}`.trim();
+  return { name, email, phone };
 }
 
 export const dynamic = 'force-dynamic';

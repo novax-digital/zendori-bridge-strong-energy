@@ -106,8 +106,19 @@ export function buildTicketJsonSchema(categories: readonly string[]): Record<str
   };
 }
 
-/** §7: at least one contact channel AND a describable request. */
-export function hasRequiredTicketFields(extraction: TicketExtraction): boolean {
-  const hasContactChannel = Boolean(extraction.contact.email) || Boolean(extraction.contact.phone);
+/**
+ * §7: at least one contact channel AND a describable request. Contact data
+ * is merged from the extraction AND locally known channel metadata (the
+ * model only sees redacted text and usually returns null contact fields).
+ */
+export function hasRequiredTicketFields(
+  extraction: TicketExtraction,
+  localContact: { email?: string | null; phone?: string | null } = {},
+): boolean {
+  const hasContactChannel =
+    Boolean(extraction.contact.email) ||
+    Boolean(extraction.contact.phone) ||
+    Boolean(localContact.email) ||
+    Boolean(localContact.phone);
   return hasContactChannel && extraction.ticket.description.trim().length > 0;
 }

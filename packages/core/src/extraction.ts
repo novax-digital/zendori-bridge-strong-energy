@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+import { redactPiiForAi } from './pii-redaction.js';
 import {
   buildCategorySection,
   buildExtractionUserPrompt,
@@ -96,10 +97,23 @@ async function runModel(
 
   // Cap the input defensively (e-mail bodies are not length-limited at
   // ingest); 30k chars keep prompts well inside the context window.
-  const bodyText =
+  const capped =
     input.bodyText.length > 30_000
       ? `${input.bodyText.slice(0, 30_000)}\n[… gekürzt]`
       : input.bodyText;
+
+  // Privacy boundary (docs/entscheidungen.md): sender metadata is used ONLY
+  // for masking here and never leaves the system; the model receives the
+  // redacted body/subject plus a has-contact flag.
+  const known = {
+    name: input.senderName,
+    email: input.senderEmail,
+    phone: input.senderPhone,
+  };
+  const bodyText = redactPiiForAi(capped, known);
+  const subject = input.subject ? redactPiiForAi(input.subject, known) : null;
+  const contextNote = input.contextNote ? redactPiiForAi(input.contextNote, known) : null;
+  const hasContactChannel = Boolean(input.senderEmail || input.senderPhone);
 
   const response = await client.messages.create({
     model,
@@ -115,7 +129,19 @@ async function runModel(
       },
       { type: 'text', text: buildCategorySection(settings.categories) },
     ],
-    messages: [{ role: 'user', content: buildExtractionUserPrompt({ ...input, bodyText }) }],
+    messages: [
+      {
+        role: 'user',
+        content: buildExtractionUserPrompt({
+          channel: input.channel,
+          hasContactChannel,
+          subject,
+          bodyText,
+          receivedAt: input.receivedAt,
+          contextNote,
+        }),
+      },
+    ],
     output_config: {
       format: {
         type: 'json_schema',

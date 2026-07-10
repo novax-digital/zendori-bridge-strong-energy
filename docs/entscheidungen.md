@@ -34,3 +34,10 @@ Antworten auf die offenen Punkte (CLAUDE.md §17) und Stack-Entscheidungen. Quel
 - **Formular-Domains** für CORS (im Dashboard nachpflegbar).
 - **Supabase-Tier** des Kunden (Free deckelt Datei-Uploads auf 50 MB → Anhang-Limit).
 - **Phase 2:** Meta-Verifizierungsstatus des Kunden-Business prüfen (früh! dauert Wochen), WhatsApp-Anzeigename, Datenschutz-Ansage-Text, Recording-Aufbewahrung, ggf. WhatsApp-Templates für Out-of-Window-Nachrichten.
+
+## Nachträge Phase 1 (2026-07-10)
+
+- **PII-Redaction für KI-Aufrufe:** An Anthropic gehen keine Absender-Metadaten mehr; Body/Betreff/Kontext werden vor dem Aufruf maskiert (E-Mail-Adressen, telefonartige Nummern, bekannter Absendername → Platzhalter). Kontaktdaten fließen lokal: E-Mail aus Headern, Formulare deterministisch aus Feldnamen, Paste per Regex. Die KI erhält nur das Flag „Kontaktweg vorhanden: ja/nein". Ehrliche Grenze: Der Anliegen-Text selbst geht zur KI; fremde Namen im Fließtext können durchrutschen; die Telefon-Heuristik kann selten Bestellnummern in Telefonform treffen.
+- **HubSpot-Transparenz:** Deliver-Step protokolliert die übermittelten Felder im Audit-Log; Detailansicht zeigt Übermittlungszeitpunkt, Felder und Deep-Link (Portal-ID/UI-Domain aus dem Verbindungstest).
+- **Statistik (`/statistik`, Migration 0004):** Monatsauswertung Nachrichten pro Kanal/Status, Tickets, KI-Tokens pro Modell — Abrechnungsgrundlage für die transaktionale Kundenabrechnung.
+- **Betriebsvorfall behoben (Migration 0003):** Enum-Cast-Fehler in `release_stuck_jobs` blockierte jede Job-Verarbeitung; zusätzlich loggt der Post-Response-Kick verschluckte Fehler jetzt sichtbar.

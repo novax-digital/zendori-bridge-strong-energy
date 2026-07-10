@@ -350,7 +350,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function checkConnection(config: ConnectionConfig): Promise<SinkHealth> {
+export interface HubSpotHealth extends SinkHealth {
+  /** For deep links to tickets: https://{uiDomain}/contacts/{portalId}/ticket/{id} */
+  portalId?: number;
+  uiDomain?: string;
+}
+
+async function checkConnection(config: ConnectionConfig): Promise<HubSpotHealth> {
   let account: HubSpotResponse;
   try {
     account = await request(config, 'GET', ACCOUNT_INFO_PATH);
@@ -405,7 +411,13 @@ async function checkConnection(config: ConnectionConfig): Promise<SinkHealth> {
     };
   }
 
-  return { ok: true, detail: 'Token gültig, Pipelines erreichbar, Custom Properties vorhanden.' };
+  const accountBody = account.json as { portalId?: number; uiDomain?: string } | null;
+  return {
+    ok: true,
+    detail: 'Token gültig, Pipelines erreichbar, Custom Properties vorhanden.',
+    portalId: accountBody?.portalId,
+    uiDomain: accountBody?.uiDomain,
+  };
 }
 
 export function createHubSpotSink(config: HubSpotConfig): TicketSink {
@@ -442,7 +454,7 @@ export async function testHubSpotConnection(config: {
   token: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
-}): Promise<SinkHealth> {
+}): Promise<HubSpotHealth> {
   return checkConnection(config);
 }
 

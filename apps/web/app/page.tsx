@@ -78,6 +78,9 @@ export default async function PosteingangPage({
             <Link href="/paste" className="text-zinc-500 hover:text-zinc-900">
               Nachricht einfügen
             </Link>
+            <Link href="/statistik" className="text-zinc-500 hover:text-zinc-900">
+              Statistik
+            </Link>
             <Link href="/einstellungen" className="text-zinc-500 hover:text-zinc-900">
               Einstellungen
             </Link>

@@ -146,7 +146,11 @@ async function stepExtract(job: JobRecord): Promise<void> {
     return;
   }
 
-  if (!hasRequiredTicketFields(run.data) || run.data.extraction.missing_fields.length > 0) {
+  const localContact = { email: message.sender_email, phone: message.sender_phone };
+  if (
+    !hasRequiredTicketFields(run.data, localContact) ||
+    run.data.extraction.missing_fields.length > 0
+  ) {
     await setMessageStatus(message.id, 'needs_info', null, supabase);
     jobLog.info(
       { messageId: message.id, missing: run.data.extraction.missing_fields },
@@ -314,13 +318,29 @@ async function stepDeliver(job: JobRecord): Promise<void> {
   }
 
   await setMessageStatus(message.id, 'ticket_created', null, supabase);
+  // Audit payload doubles as the dashboard's "what was sent to HubSpot" view.
+  const deliverSettings = await getAppSettings(supabase);
   await audit(
     {
       actorType: 'system',
       action: 'ticket_created',
       entity: 'ticket',
       entityId: ticket.ticket_ref,
-      payload: { messageId: message.id, channel: message.channel },
+      payload: {
+        messageId: message.id,
+        channel: message.channel,
+        hubspotTicketId: ticket.hubspot_ticket_id,
+        submitted: {
+          subject: extraction.ticket.subject,
+          category: extraction.ticket.category,
+          priority: extraction.ticket.priority,
+          pipelineId:
+            deliverSettings.hubspot_pipeline_id ?? loadServerEnv().HUBSPOT_PIPELINE_ID ?? null,
+          stageId: deliverSettings.hubspot_stage_id ?? loadServerEnv().HUBSPOT_STAGE_ID ?? null,
+          zendoriRef: ticket.ticket_ref,
+          zendoriSource: message.channel,
+        },
+      },
     },
     supabase,
   );
