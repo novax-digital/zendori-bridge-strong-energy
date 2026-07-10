@@ -62,7 +62,12 @@ export function buildTicketJsonSchema(categories: readonly string[]): Record<str
         type: 'object',
         additionalProperties: false,
         required: ['name', 'email', 'phone', 'company'],
-        properties: { name: nullableStr, email: nullableStr, phone: nullableStr, company: nullableStr },
+        properties: {
+          name: nullableStr,
+          email: nullableStr,
+          phone: nullableStr,
+          company: nullableStr,
+        },
       },
       ticket: {
         type: 'object',
@@ -103,7 +108,6 @@ export function buildTicketJsonSchema(categories: readonly string[]): Record<str
 
 /** §7: at least one contact channel AND a describable request. */
 export function hasRequiredTicketFields(extraction: TicketExtraction): boolean {
-  const hasContactChannel =
-    Boolean(extraction.contact.email) || Boolean(extraction.contact.phone);
+  const hasContactChannel = Boolean(extraction.contact.email) || Boolean(extraction.contact.phone);
   return hasContactChannel && extraction.ticket.description.trim().length > 0;
 }

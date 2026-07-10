@@ -1,4 +1,9 @@
-import { newCorrelationId, type AttachmentRef, type Channel, type MessageStatus } from '@zendori/core';
+import {
+  newCorrelationId,
+  type AttachmentRef,
+  type Channel,
+  type MessageStatus,
+} from '@zendori/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -43,8 +48,7 @@ export interface NewInboundMessage {
 }
 
 export type InsertMessageResult =
-  | { inserted: true; message: InboundMessageRow }
-  | { inserted: false; reason: 'duplicate' };
+  { inserted: true; message: InboundMessageRow } | { inserted: false; reason: 'duplicate' };
 
 /** Insert a normalized message; (channel, external_id) duplicates are a no-op (§8 stage 1). */
 export async function insertInboundMessage(

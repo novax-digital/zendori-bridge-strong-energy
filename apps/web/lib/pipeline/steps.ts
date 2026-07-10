@@ -14,7 +14,14 @@ import {
   type TicketSink,
 } from '@zendori/core';
 
-import { audit, getAppSettings, getMessage, setMessageStatus, type AppSettings, type InboundMessageRow } from '@/lib/db';
+import {
+  audit,
+  getAppSettings,
+  getMessage,
+  setMessageStatus,
+  type AppSettings,
+  type InboundMessageRow,
+} from '@/lib/db';
 import { enqueueJob } from '@/lib/jobs/enqueue';
 import { sendAutoReply } from '@/lib/mail/send';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -47,8 +54,7 @@ async function stepExtract(job: JobRecord): Promise<void> {
 
   const rawBody = message.body_text ?? message.subject ?? '';
   const bodyText = message.channel === 'email' ? stripReplyText(rawBody) : rawBody;
-  const contextNote =
-    message.channel === 'paste' ? readPasteContext(message.raw) : null;
+  const contextNote = message.channel === 'paste' ? readPasteContext(message.raw) : null;
 
   let run;
   try {
@@ -109,7 +115,11 @@ async function stepExtract(job: JobRecord): Promise<void> {
   if (run.data.meta.is_spam || run.data.meta.is_auto_reply || headerAutoSubmitted) {
     await setMessageStatus(message.id, 'spam', null, supabase);
     jobLog.info(
-      { messageId: message.id, isSpam: run.data.meta.is_spam, isAutoReply: run.data.meta.is_auto_reply || headerAutoSubmitted },
+      {
+        messageId: message.id,
+        isSpam: run.data.meta.is_spam,
+        isAutoReply: run.data.meta.is_auto_reply || headerAutoSubmitted,
+      },
       'message classified as spam/auto-reply — no ticket',
     );
     return;

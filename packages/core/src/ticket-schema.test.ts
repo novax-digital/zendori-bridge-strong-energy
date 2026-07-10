@@ -1,7 +1,11 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-import { buildTicketJsonSchema, hasRequiredTicketFields, ticketExtractionSchema } from './ticket-schema.js';
+import {
+  buildTicketJsonSchema,
+  hasRequiredTicketFields,
+  ticketExtractionSchema,
+} from './ticket-schema.js';
 
 const valid = {
   contact: { name: 'Sandra Beck', email: 's.beck@beispiel.de', phone: null, company: null },
