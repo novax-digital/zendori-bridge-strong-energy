@@ -9,6 +9,7 @@ import {
 } from '@zendori/core';
 
 import { PRIORITY_LABELS } from '@/components/status-badge';
+import { SubmitButton } from '@/components/submit-button';
 import { getAppSettings } from '@/lib/db';
 import { signOut } from '@/lib/supabase/auth-actions';
 import { createClient } from '@/lib/supabase/server';
@@ -73,12 +74,7 @@ export default async function PastePage({
         <div className="flex items-center gap-4">
           {userEmail ? <span className="text-xs text-zinc-500">{userEmail}</span> : null}
           <form action={signOut}>
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-            >
-              Abmelden
-            </button>
+            <SubmitButton variant="secondary">Abmelden</SubmitButton>
           </form>
         </div>
       </header>
@@ -141,12 +137,9 @@ function InputForm({ fehlermeldung }: { fehlermeldung?: string }) {
             className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
           />
         </div>
-        <button
-          type="submit"
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-        >
+        <SubmitButton variant="primary" pendingText="Analysiere …">
           Analysieren
-        </button>
+        </SubmitButton>
       </form>
     </>
   );
@@ -400,20 +393,12 @@ async function Preview({
         </p>
 
         <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-          >
+          <SubmitButton variant="primary" pendingText="Erstelle Ticket …">
             Ticket erstellen
-          </button>
-          <button
-            type="submit"
-            formAction={discardPaste}
-            formNoValidate
-            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-          >
+          </SubmitButton>
+          <SubmitButton variant="secondary" formAction={discardPaste} formNoValidate>
             Verwerfen
-          </button>
+          </SubmitButton>
         </div>
       </form>
 

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { signIn } from '@/lib/supabase/auth-actions';
+import { SubmitButton } from '@/components/submit-button';
 import { createClient } from '@/lib/supabase/server';
 
 const FEHLERMELDUNGEN: Record<string, string> = {
@@ -69,12 +70,9 @@ export default async function LoginPage({
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
             />
           </div>
-          <button
-            type="submit"
-            className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-          >
+          <SubmitButton variant="primary" pendingText="Melde an …">
             Anmelden
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </main>

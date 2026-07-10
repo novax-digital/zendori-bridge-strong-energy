@@ -11,6 +11,7 @@ import type {
 
 import { AutoRefresh } from '@/components/auto-refresh';
 import { CHANNEL_LABELS, PRIORITY_LABELS, StatusBadge } from '@/components/status-badge';
+import { SubmitButton } from '@/components/submit-button';
 import { signOut } from '@/lib/supabase/auth-actions';
 import { createClient } from '@/lib/supabase/server';
 
@@ -150,12 +151,7 @@ export default async function NachrichtDetailPage({ params }: { params: Promise<
         <div className="flex items-center gap-4">
           {userEmail ? <span className="text-xs text-zinc-500">{userEmail}</span> : null}
           <form action={signOut}>
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-            >
-              Abmelden
-            </button>
+            <SubmitButton variant="secondary">Abmelden</SubmitButton>
           </form>
         </div>
       </header>
@@ -343,21 +339,13 @@ export default async function NachrichtDetailPage({ params }: { params: Promise<
         {/* Aktionen */}
         <div className="flex items-center gap-3">
           <form action={reprocessMessage.bind(null, message.id)}>
-            <button
-              type="submit"
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-            >
+            <SubmitButton variant="primary" pendingText="Wird neu gestartet …">
               Erneut verarbeiten
-            </button>
+            </SubmitButton>
           </form>
           {message.status !== 'spam' ? (
             <form action={markAsSpam.bind(null, message.id)}>
-              <button
-                type="submit"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-              >
-                Als Spam markieren
-              </button>
+              <SubmitButton variant="secondary">Als Spam markieren</SubmitButton>
             </form>
           ) : null}
         </div>

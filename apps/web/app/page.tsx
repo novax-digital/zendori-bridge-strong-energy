@@ -5,6 +5,7 @@ import { MESSAGE_STATUSES, type Channel, type MessageStatus } from '@zendori/cor
 
 import { AutoRefresh } from '@/components/auto-refresh';
 import { CHANNEL_LABELS, STATUS_LABELS, StatusBadge } from '@/components/status-badge';
+import { SubmitButton } from '@/components/submit-button';
 import { signOut } from '@/lib/supabase/auth-actions';
 import { createClient } from '@/lib/supabase/server';
 
@@ -85,12 +86,7 @@ export default async function PosteingangPage({
         <div className="flex items-center gap-4">
           {userEmail ? <span className="text-xs text-zinc-500">{userEmail}</span> : null}
           <form action={signOut}>
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-            >
-              Abmelden
-            </button>
+            <SubmitButton variant="secondary">Abmelden</SubmitButton>
           </form>
         </div>
       </header>

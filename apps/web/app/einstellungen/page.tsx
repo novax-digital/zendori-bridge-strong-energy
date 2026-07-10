@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { loadServerEnv } from '@zendori/core';
 
 import { getAppSettings } from '@/lib/db';
+import { SubmitButton } from '@/components/submit-button';
 import { createClient } from '@/lib/supabase/server';
 
 import {
@@ -113,12 +114,8 @@ const cardClass = 'rounded-lg border border-zinc-200 bg-white p-6 shadow-sm';
 const labelClass = 'block text-sm font-medium text-zinc-700';
 const inputClass =
   'mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none';
-const buttonPrimary =
-  'rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700';
 const buttonSecondary =
   'rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100';
-const buttonDanger =
-  'rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50';
 
 const BADGE_TONES = {
   green: 'bg-green-100 text-green-800',
@@ -228,9 +225,7 @@ export default async function EinstellungenPage({
           </div>
 
           <form action={pruefeHubSpot} className="mt-3">
-            <button type="submit" className={buttonSecondary}>
-              Verbindung prüfen &amp; Pipelines laden
-            </button>
+            <SubmitButton variant="secondary">Verbindung prüfen &amp; Pipelines laden</SubmitButton>
           </form>
 
           {hubspotCache ? (
@@ -270,9 +265,7 @@ export default async function EinstellungenPage({
                       ))}
                     </select>
                   </div>
-                  <button type="submit" className={buttonPrimary}>
-                    Pipeline speichern
-                  </button>
+                  <SubmitButton variant="secondary">Pipeline speichern</SubmitButton>
                 </form>
               ) : (
                 <p className="mt-3 text-sm text-zinc-500">Keine Pipelines geladen.</p>
@@ -298,9 +291,7 @@ export default async function EinstellungenPage({
               HubSpot-Account an.
             </p>
             <form action={provisioniereProperties} className="mt-3">
-              <button type="submit" className={buttonSecondary}>
-                Properties anlegen / prüfen
-              </button>
+              <SubmitButton variant="secondary">Properties anlegen / prüfen</SubmitButton>
             </form>
             {provision ? (
               <div className="mt-3 space-y-1 text-sm">
@@ -409,9 +400,7 @@ export default async function EinstellungenPage({
                         <td className="py-3">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <form action={testePostfach.bind(null, mailbox.id)}>
-                              <button type="submit" className={buttonSecondary}>
-                                Verbindung testen
-                              </button>
+                              <SubmitButton variant="secondary">Verbindung testen</SubmitButton>
                             </form>
                             <a
                               href={`/einstellungen?bearbeiten=${mailbox.id}#postfach-form`}
@@ -420,14 +409,12 @@ export default async function EinstellungenPage({
                               Bearbeiten
                             </a>
                             <form action={schaltePostfach.bind(null, mailbox.id, !mailbox.active)}>
-                              <button type="submit" className={buttonSecondary}>
+                              <SubmitButton variant="secondary">
                                 {mailbox.active ? 'Deaktivieren' : 'Aktivieren'}
-                              </button>
+                              </SubmitButton>
                             </form>
                             <form action={loeschePostfach.bind(null, mailbox.id)}>
-                              <button type="submit" className={buttonDanger}>
-                                Löschen
-                              </button>
+                              <SubmitButton variant="secondary">Löschen</SubmitButton>
                             </form>
                           </div>
                         </td>
@@ -568,9 +555,7 @@ export default async function EinstellungenPage({
                 </label>
               </div>
               <div className="flex items-center gap-3">
-                <button type="submit" className={buttonPrimary}>
-                  Postfach speichern
-                </button>
+                <SubmitButton variant="secondary">Postfach speichern</SubmitButton>
                 {editMailbox ? (
                   <a
                     href="/einstellungen#postfaecher"
@@ -636,12 +621,9 @@ export default async function EinstellungenPage({
                       </td>
                       <td className="py-3">
                         <form action={schalteFormKey.bind(null, apiKey.id, !apiKey.active)}>
-                          <button
-                            type="submit"
-                            className={apiKey.active ? buttonDanger : buttonSecondary}
-                          >
+                          <SubmitButton variant="secondary">
                             {apiKey.active ? 'Deaktivieren' : 'Aktivieren'}
-                          </button>
+                          </SubmitButton>
                         </form>
                       </td>
                     </tr>
@@ -682,9 +664,7 @@ export default async function EinstellungenPage({
                   Eine Origin pro Zeile oder durch Kommas getrennt (CORS-Freigabe).
                 </p>
               </div>
-              <button type="submit" className={buttonPrimary}>
-                Schlüssel erzeugen
-              </button>
+              <SubmitButton variant="secondary">Schlüssel erzeugen</SubmitButton>
             </form>
           </div>
         </section>
@@ -705,9 +685,7 @@ export default async function EinstellungenPage({
               defaultValue={settings.ticket_categories.join('\n')}
               className={inputClass}
             />
-            <button type="submit" className={buttonPrimary}>
-              Kategorien speichern
-            </button>
+            <SubmitButton variant="secondary">Kategorien speichern</SubmitButton>
           </form>
         </section>
 
@@ -745,9 +723,7 @@ export default async function EinstellungenPage({
                 className={inputClass}
               />
             </div>
-            <button type="submit" className={buttonPrimary}>
-              Vorlage speichern
-            </button>
+            <SubmitButton variant="secondary">Vorlage speichern</SubmitButton>
           </form>
         </section>
       </main>
