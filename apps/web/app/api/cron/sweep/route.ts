@@ -1,6 +1,7 @@
 import { createLogger, loadServerEnv } from '@zendori/core';
 
 import { runDueJobs } from '@/lib/jobs/runner';
+import { pollAllMailboxes } from '@/lib/mail/poll';
 
 /**
  * Minutely cron sweeper (vercel.json → crons): releases expired job leases,
@@ -25,11 +26,14 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const result = await runDueJobs();
-    if (result.claimed > 0 || result.released > 0) {
-      log.info(result, 'sweep finished');
+    // 1. Pull new mail (each mailbox enqueues extract jobs for new messages).
+    const mail = await pollAllMailboxes();
+    // 2. Drain due jobs (retries included).
+    const jobs = await runDueJobs();
+    if (jobs.claimed > 0 || jobs.released > 0 || mail.newMessages > 0) {
+      log.info({ ...jobs, mail }, 'sweep finished');
     }
-    return Response.json({ status: 'ok', ...result });
+    return Response.json({ status: 'ok', jobs, mail });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error({ err: message }, 'sweep failed');
@@ -38,5 +42,5 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export const dynamic = 'force-dynamic';
-// Sweeps are small batches; well below Vercel's function duration limits.
-export const maxDuration = 60;
+// IMAP polling of multiple mailboxes can take a while on slow servers.
+export const maxDuration = 300;

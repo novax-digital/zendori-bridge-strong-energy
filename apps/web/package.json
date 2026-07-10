@@ -10,17 +10,22 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.7.0",
+    "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.50.0",
     "@zendori/core": "workspace:*",
+    "imapflow": "1.4.6",
+    "mailparser": "3.9.14",
     "next": "16.2.10",
+    "nodemailer": "9.0.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^22",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

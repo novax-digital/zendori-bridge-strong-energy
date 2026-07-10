@@ -22,6 +22,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "pino": "^9.7.0",
     "zod": "^4.0.0"
   },
