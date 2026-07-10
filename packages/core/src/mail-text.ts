@@ -99,12 +99,15 @@ export function detectAutoSubmitted(
       }
     }
 
-    if (
-      (lowerName === 'x-auto-response-suppress' ||
-        lowerName === 'x-autoreply' ||
-        lowerName === 'x-autorespond') &&
-      rawValue !== undefined
-    ) {
+    if (lowerName === 'x-auto-response-suppress' && rawValue !== undefined) {
+      // 'None' explicitly means "suppress nothing" — a regular mail.
+      const meaningful = values.filter((value) => value.trim().toLowerCase() !== 'none');
+      if (meaningful.length > 0) {
+        return { isAutoSubmitted: true, reason: `${name}: ${meaningful.join(', ')}` };
+      }
+    }
+
+    if ((lowerName === 'x-autoreply' || lowerName === 'x-autorespond') && rawValue !== undefined) {
       return { isAutoSubmitted: true, reason: `${name}: ${values.join(', ')}` };
     }
 

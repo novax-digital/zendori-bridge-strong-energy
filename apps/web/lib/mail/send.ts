@@ -34,6 +34,9 @@ export async function sendAutoReply(opts: {
     host: mailbox.smtp_host,
     port: mailbox.smtp_port,
     secure: mailbox.smtp_port === 465,
+    // Port 587 & friends: enforce STARTTLS — otherwise a MITM stripping the
+    // capability downgrades to cleartext (password + PII).
+    requireTLS: mailbox.smtp_port !== 465,
     auth: { user: mailbox.username, pass: password },
   });
 

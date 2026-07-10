@@ -157,8 +157,10 @@ create table public.tickets (
 );
 
 create index tickets_created_at_idx on public.tickets (created_at desc);
--- Supports the SET NULL enforcement scan when the retention job deletes messages
-create index tickets_first_message_id_idx on public.tickets (first_message_id);
+-- UNIQUE: idempotency anchor for the deliver step — concurrent deliver jobs
+-- for one message must not create two tickets. Also covers the SET NULL
+-- enforcement scan of the retention job (NULLs are distinct, so many NULLs ok).
+create unique index tickets_first_message_id_key on public.tickets (first_message_id);
 create index tickets_subject_trgm_idx
   on public.tickets using gin (subject extensions.gin_trgm_ops);
 create index tickets_description_trgm_idx
@@ -309,6 +311,11 @@ create index jobs_due_idx on public.jobs (run_after)
   where status in ('queued', 'failed');
 create index jobs_message_id_idx on public.jobs (message_id);
 create index jobs_status_idx on public.jobs (status);
+-- At most ONE pending job per (message, step): duplicate enqueues (double
+-- clicks, crash-retry races, overlapping runners) collapse into one job.
+-- App code treats 23505 on insert as success (see lib/jobs/enqueue.ts).
+create unique index jobs_pending_step_key on public.jobs (message_id, step)
+  where status in ('queued', 'processing', 'failed');
 
 create trigger jobs_set_updated_at
   before update on public.jobs
@@ -352,7 +359,8 @@ as $$
 $$;
 
 -- Release jobs whose function crashed or timed out (lease expired): schedule
--- a retry with backoff, or mark dead when retries are exhausted.
+-- a retry with backoff, or mark dead when retries are exhausted. Dead jobs
+-- also mark their message as failed — §5: never silent loss.
 create function public.release_stuck_jobs(lease_seconds integer default 300)
 returns integer
 language plpgsql
@@ -361,18 +369,60 @@ as $$
 declare
   released integer;
 begin
-  update public.jobs
-  set status = case when attempts >= max_attempts then 'dead' else 'failed' end,
-      run_after = now() + public.job_retry_delay(attempts),
-      last_error = coalesce(last_error, 'lease expired (function crash or timeout)'),
-      claimed_at = null,
-      updated_at = now()
-  where status = 'processing'
-    and claimed_at < now() - make_interval(secs => lease_seconds);
-  get diagnostics released = row_count;
+  with released_jobs as (
+    update public.jobs
+    set status = case when attempts >= max_attempts then 'dead' else 'failed' end,
+        run_after = now() + public.job_retry_delay(attempts),
+        last_error = coalesce(last_error, 'lease expired (function crash or timeout)'),
+        claimed_at = null,
+        updated_at = now()
+    where status = 'processing'
+      and claimed_at < now() - make_interval(secs => lease_seconds)
+    returning id, message_id, step, status
+  ),
+  mark_messages_failed as (
+    update public.inbound_messages m
+    set status = 'failed',
+        error = 'job "' || r.step || '" dead after lease expiry'
+    from released_jobs r
+    where r.status = 'dead'
+      and m.id = r.message_id
+      -- never downgrade terminal successes (e.g. a dead confirm job after
+      -- the ticket already exists)
+      and m.status not in ('ticket_created', 'attached_to_existing', 'spam')
+    returning m.id
+  )
+  select count(*) into released from released_jobs;
   return released;
 end;
 $$;
+
+-- Rescue net for messages stranded in 'received' with no job — reachable when
+-- an ingest crashed between message insert and job insert (§5: never silent
+-- loss). Called by the minutely sweeper; grace period avoids racing an ingest
+-- whose enqueue is still in flight.
+create function public.rescue_stranded_messages(grace_seconds integer default 120)
+returns integer
+language plpgsql
+volatile
+as $$
+declare
+  rescued integer;
+begin
+  insert into public.jobs (step, message_id, correlation_id)
+  select 'extract', m.id, m.correlation_id
+  from public.inbound_messages m
+  where m.status = 'received'
+    and m.created_at < now() - make_interval(secs => grace_seconds)
+    and not exists (select 1 from public.jobs j where j.message_id = m.id)
+  limit 50
+  on conflict do nothing;
+  get diagnostics rescued = row_count;
+  return rescued;
+end;
+$$;
+
+revoke execute on function public.rescue_stranded_messages(integer) from public, anon, authenticated;
 
 -- Job mutation is reserved for the server (service key). Functions are
 -- executable by PUBLIC by default — revoke explicitly.

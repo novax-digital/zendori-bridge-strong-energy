@@ -94,9 +94,17 @@ async function runModel(
 ): Promise<ExtractionRun> {
   const isHaiku = model.includes('haiku');
 
+  // Cap the input defensively (e-mail bodies are not length-limited at
+  // ingest); 30k chars keep prompts well inside the context window.
+  const bodyText =
+    input.bodyText.length > 30_000
+      ? `${input.bodyText.slice(0, 30_000)}\n[… gekürzt]`
+      : input.bodyText;
+
   const response = await client.messages.create({
     model,
-    max_tokens: 4096,
+    // Room for a full 20k-char description in the JSON output (schema limit).
+    max_tokens: 16_000,
     // Sonnet 5 / Opus 4.7+ return 400 for non-default sampling params.
     ...(isHaiku ? { temperature: 0 } : {}),
     system: [
@@ -107,7 +115,7 @@ async function runModel(
       },
       { type: 'text', text: buildCategorySection(settings.categories) },
     ],
-    messages: [{ role: 'user', content: buildExtractionUserPrompt(input) }],
+    messages: [{ role: 'user', content: buildExtractionUserPrompt({ ...input, bodyText }) }],
     output_config: {
       format: {
         type: 'json_schema',

@@ -9,7 +9,7 @@ import {
 } from '@zendori/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { getAppSettings, insertInboundMessage, type AppSettings } from '@/lib/db';
+import { audit, getAppSettings, insertInboundMessage, type AppSettings } from '@/lib/db';
 import { listActiveMailboxes, updateMailboxPollState, type MailboxRow } from '@/lib/db/mailboxes';
 import { enqueueJob } from '@/lib/jobs/enqueue';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -122,9 +122,28 @@ async function pollMailbox(
 
       let maxUid = lastUid;
       for (const item of fetched) {
-        const inserted = await ingestMessage(mailbox, uidValidity, item, settings, supabase);
-        if (inserted) newMessages += 1;
-        await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
+        try {
+          const inserted = await ingestMessage(mailbox, uidValidity, item, settings, supabase);
+          if (inserted) newMessages += 1;
+          await client.messageFlagsAdd({ uid: item.uid }, ['\\Seen'], { uid: true });
+        } catch (error) {
+          // Poison message: skip past it so it cannot wedge the whole mailbox
+          // (all newer mail would otherwise never be ingested). It stays
+          // UNREAD in the mailbox and the failure is recorded loudly — no
+          // silent loss.
+          const reason = error instanceof Error ? error.message : String(error);
+          log.error({ mailbox: mailbox.label, uid: item.uid, err: reason }, 'mail ingest failed');
+          await audit(
+            {
+              actorType: 'system',
+              action: 'mail_ingest_failed',
+              entity: 'mailbox',
+              entityId: mailbox.id,
+              payload: { uid: item.uid, reason },
+            },
+            supabase,
+          ).catch(() => {});
+        }
         if (item.uid > maxUid) maxUid = item.uid;
       }
 
@@ -205,7 +224,8 @@ async function ingestMessage(
   let skippedChanged = false;
   for (const [index, att] of eligible.entries()) {
     const filename = sanitizeFilename(att.filename, index);
-    const storagePath = `${message.id}/${filename}`;
+    // Index prefix: two attachments with the same filename must not collide.
+    const storagePath = `${message.id}/${index}-${filename}`;
     const { error } = await supabase.storage
       .from('attachments')
       .upload(storagePath, att.content, { contentType: att.contentType });

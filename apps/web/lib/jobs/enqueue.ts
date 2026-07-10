@@ -17,7 +17,12 @@ export async function enqueueJob(
     message_id: messageId,
     correlation_id: correlationId,
   });
-  if (error) throw new Error(`enqueueJob(${step}) failed: ${error.message}`);
+  // 23505 = a pending job for (message, step) already exists (partial unique
+  // index) — duplicate enqueues from double clicks or overlapping runners
+  // collapse into that job, which is exactly what we want.
+  if (error && error.code !== '23505') {
+    throw new Error(`enqueueJob(${step}) failed: ${error.message}`);
+  }
 }
 
 /**

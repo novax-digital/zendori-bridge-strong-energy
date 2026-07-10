@@ -33,6 +33,23 @@ function jsonError(
   return Response.json({ error: message }, { status, headers });
 }
 
+/** Origin check when the key is not (yet) known — mirrors the preflight rule. */
+async function originAllowedByAnyActiveKey(
+  supabase: ReturnType<typeof createAdminClient>,
+  origin: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('form_api_keys')
+    .select('allowed_origins')
+    .eq('active', true);
+  if (error) {
+    throw new Error(`form_api_keys lookup failed: ${error.message}`);
+  }
+  return ((data ?? []) as Pick<FormApiKeyRow, 'allowed_origins'>[]).some(
+    (row) => row.allowed_origins.length === 0 || row.allowed_origins.includes(origin),
+  );
+}
+
 /** Readable German-facing serialization of the free-form payload for extraction. */
 function payloadToBodyText(payload: Record<string, unknown>): string {
   const lines: string[] = [];
@@ -50,14 +67,21 @@ function payloadToBodyText(payload: Record<string, unknown>): string {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  // Kept outside try so the catch-all 500 also carries the CORS header once
-  // the origin check has passed (browser fetch could not read it otherwise).
+  // Computed BEFORE any error response: browser callers must be able to read
+  // German error bodies (413/400/401/429) cross-origin, and pre-auth responses
+  // can only be scoped against all active keys (like the OPTIONS preflight).
   let corsHeaders: Record<string, string> = {};
 
   try {
+    const supabase = createAdminClient();
+    const origin = request.headers.get('origin');
+    if (origin && (await originAllowedByAnyActiveKey(supabase, origin))) {
+      corsHeaders = { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
+    }
+
     const rawBody = await request.text();
     if (rawBody.length > MAX_BODY_CHARS) {
-      return jsonError(413, 'Anfrage zu groß (maximal 50000 Zeichen).');
+      return jsonError(413, 'Anfrage zu groß (maximal 50000 Zeichen).', corsHeaders);
     }
 
     let payload: Record<string, unknown>;
@@ -68,27 +92,28 @@ export async function POST(request: Request): Promise<Response> {
       }
       payload = parsed as Record<string, unknown>;
     } catch {
-      return jsonError(400, 'Ungültiger Anfrage-Body: JSON-Objekt erwartet.');
+      return jsonError(400, 'Ungültiger Anfrage-Body: JSON-Objekt erwartet.', corsHeaders);
     }
 
     const requestId = payload['request_id'];
     if (requestId !== undefined && typeof requestId !== 'string') {
-      return jsonError(400, 'Feld "request_id" muss eine Zeichenkette sein.');
+      return jsonError(400, 'Feld "request_id" muss eine Zeichenkette sein.', corsHeaders);
     }
 
     // Honeypot (§10.1): bots fill the hidden 'website' field — silent drop,
-    // indistinguishable from success so the bot learns nothing.
+    // indistinguishable from success so the bot learns nothing. Logged so a
+    // legitimate form with a real 'website' field is diagnosable.
     const honeypot = payload['website'];
     if (typeof honeypot === 'string' && honeypot.length > 0) {
-      return Response.json({ status: 'angenommen' }, { status: 202 });
+      log.info({ origin: origin ?? null }, 'honeypot triggered — submission silently dropped');
+      return Response.json({ status: 'angenommen' }, { status: 202, headers: corsHeaders });
     }
 
     const apiKey = request.headers.get('x-zendori-key');
     if (!apiKey) {
-      return jsonError(401, 'Ungültiger oder fehlender API-Schlüssel.');
+      return jsonError(401, 'Ungültiger oder fehlender API-Schlüssel.', corsHeaders);
     }
 
-    const supabase = createAdminClient();
     const { data: keyData, error: keyError } = await supabase
       .from('form_api_keys')
       .select('id, site_label, allowed_origins')
@@ -99,16 +124,12 @@ export async function POST(request: Request): Promise<Response> {
       throw new Error(`form_api_keys lookup failed: ${keyError.message}`);
     }
     if (!keyData) {
-      return jsonError(401, 'Ungültiger oder fehlender API-Schlüssel.');
+      return jsonError(401, 'Ungültiger oder fehlender API-Schlüssel.', corsHeaders);
     }
     const keyRow = keyData as FormApiKeyRow;
 
-    const origin = request.headers.get('origin');
     if (origin && keyRow.allowed_origins.length > 0 && !keyRow.allowed_origins.includes(origin)) {
       return jsonError(403, 'Origin nicht erlaubt.');
-    }
-    if (origin) {
-      corsHeaders = { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
     }
 
     const settings = await getAppSettings(supabase);
@@ -201,18 +222,7 @@ export async function OPTIONS(request: Request): Promise<Response> {
 
   try {
     const supabase = createAdminClient();
-    const { data, error } = await supabase
-      .from('form_api_keys')
-      .select('allowed_origins')
-      .eq('active', true);
-    if (error) {
-      throw new Error(`form_api_keys lookup failed: ${error.message}`);
-    }
-
-    const allowed = ((data ?? []) as Pick<FormApiKeyRow, 'allowed_origins'>[]).some(
-      (row) => row.allowed_origins.length === 0 || row.allowed_origins.includes(origin),
-    );
-    if (!allowed) {
+    if (!(await originAllowedByAnyActiveKey(supabase, origin))) {
       return new Response(null, { status: 204 });
     }
 

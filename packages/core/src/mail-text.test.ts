@@ -125,6 +125,12 @@ test('detectAutoSubmitted flags X-Auto-Response-Suppress: All', () => {
   assert.equal(result.reason, 'X-Auto-Response-Suppress: All');
 });
 
+test('detectAutoSubmitted ignores X-Auto-Response-Suppress: None (means suppress nothing)', () => {
+  const result = detectAutoSubmitted({ 'X-Auto-Response-Suppress': 'None' });
+  assert.equal(result.isAutoSubmitted, false);
+  assert.equal(result.reason, null);
+});
+
 test('detectAutoSubmitted flags Precedence: bulk', () => {
   const result = detectAutoSubmitted({ Precedence: 'bulk' });
   assert.equal(result.isAutoSubmitted, true);

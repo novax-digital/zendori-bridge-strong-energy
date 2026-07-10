@@ -22,6 +22,7 @@ import {
   type AppSettings,
   type InboundMessageRow,
 } from '@/lib/db';
+import { getMailbox } from '@/lib/db/mailboxes';
 import { enqueueJob } from '@/lib/jobs/enqueue';
 import { sendAutoReply } from '@/lib/mail/send';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -35,12 +36,32 @@ import { createAdminClient } from '@/lib/supabase/admin';
 const log = createLogger({ name: 'pipeline' });
 
 export const STEP_HANDLERS: Record<PipelineStep, (job: JobRecord) => Promise<void>> = {
-  extract: stepExtract,
-  contact_upsert: stepContactUpsert,
-  dedup_check: stepDedupCheck,
-  deliver: stepDeliver,
-  confirm: stepConfirm,
+  extract: withSpamGuard(stepExtract),
+  contact_upsert: withSpamGuard(stepContactUpsert),
+  dedup_check: withSpamGuard(stepDedupCheck),
+  deliver: withSpamGuard(stepDeliver),
+  confirm: withSpamGuard(stepConfirm),
 };
+
+/**
+ * An operator's spam verdict is authoritative: in-flight jobs of an already
+ * marked message become no-ops instead of creating tickets/auto-replies.
+ */
+function withSpamGuard(
+  handler: (job: JobRecord) => Promise<void>,
+): (job: JobRecord) => Promise<void> {
+  return async (job) => {
+    const message = await getMessage(job.message_id, createAdminClient());
+    if (message.status === 'spam') {
+      withCorrelation(log, job.correlation_id).info(
+        { messageId: job.message_id, step: job.step },
+        'message marked as spam — skipping pipeline step',
+      );
+      return;
+    }
+    await handler(job);
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Step 2 — AI extraction
@@ -174,7 +195,30 @@ async function stepContactUpsert(job: JobRecord): Promise<void> {
       },
       { onConflict: email ? 'email' : 'phone' },
     );
-    if (error) throw new Error(`contacts_cache upsert failed: ${error.message}`);
+    if (error) {
+      if (error.code !== '23505') {
+        throw new Error(`contacts_cache upsert failed: ${error.message}`);
+      }
+      // The upsert can violate the OTHER unique column: a new email whose
+      // phone already belongs to a different cached contact (shared office
+      // number). Cache by email only so the deliver lookup (email-first)
+      // resolves; a phone-only conflict means the row already exists.
+      if (email) {
+        const retry = await supabase.from('contacts_cache').upsert(
+          {
+            email,
+            phone: null,
+            hubspot_contact_id: contactRef.sinkContactId,
+            name: extraction.contact.name ?? message.sender_name,
+            last_synced_at: new Date().toISOString(),
+          },
+          { onConflict: 'email' },
+        );
+        if (retry.error) {
+          throw new Error(`contacts_cache email-only upsert failed: ${retry.error.message}`);
+        }
+      }
+    }
   }
 
   await enqueueJob('dedup_check', message.id, job.correlation_id, supabase);
@@ -206,7 +250,9 @@ async function stepDeliver(job: JobRecord): Promise<void> {
   const message = await getMessage(job.message_id, supabase);
   const extraction = await getLatestExtraction(job.message_id);
 
-  // Local mirror row is the idempotency anchor.
+  // Local mirror row is the idempotency anchor (unique index on
+  // first_message_id — a concurrent deliver loses the insert race and
+  // continues with the winner's row).
   let ticket = await findTicketByMessage(job.message_id);
   if (!ticket) {
     const { data, error } = await supabase
@@ -221,8 +267,14 @@ async function stepDeliver(job: JobRecord): Promise<void> {
       })
       .select()
       .single();
-    if (error) throw new Error(`ticket mirror insert failed: ${error.message}`);
-    ticket = data as TicketRow;
+    if (error) {
+      if (error.code === '23505') {
+        ticket = await findTicketByMessage(job.message_id);
+      }
+      if (!ticket) throw new Error(`ticket mirror insert failed: ${error.message}`);
+    } else {
+      ticket = data as TicketRow;
+    }
   }
 
   if (!ticket.hubspot_ticket_id) {
@@ -292,6 +344,29 @@ async function stepConfirm(job: JobRecord): Promise<void> {
 
   const mailboxId = readMailboxId(message.raw);
   if (!mailboxId) return;
+
+  const mailbox = await getMailbox(mailboxId, supabase);
+  // Never reply to the mailbox's own address (self-loop, §10.2).
+  if (
+    !mailbox ||
+    mailbox.username.trim().toLowerCase() === message.sender_email.trim().toLowerCase()
+  ) {
+    return;
+  }
+
+  // Idempotency: the runner delivers at-least-once — never send the
+  // confirmation twice. The audit row written right after sending is the
+  // sent-marker (worst case on a crash in between: exactly one duplicate).
+  const { data: alreadySent, error: auditError } = await supabase
+    .from('audit_log')
+    .select('id')
+    .eq('action', 'auto_reply_sent')
+    .eq('entity', 'inbound_message')
+    .eq('entity_id', message.id)
+    .limit(1)
+    .maybeSingle();
+  if (auditError) throw new Error(`auto-reply idempotency check failed: ${auditError.message}`);
+  if (alreadySent) return;
 
   const settings = await getAppSettings(supabase);
   await sendAutoReply({

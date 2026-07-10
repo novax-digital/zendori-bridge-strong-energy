@@ -379,7 +379,33 @@ async function checkConnection(config: ConnectionConfig): Promise<SinkHealth> {
         : `Ticket-Pipelines nicht abrufbar (Status ${pipelines.status}).`;
     return { ok: false, detail };
   }
-  return { ok: true, detail: 'Token gültig, Ticket-Pipelines erreichbar.' };
+
+  // Without the custom properties every deliver job dies with a 400 — an
+  // all-green connection check would be lying.
+  const missingProperties: string[] = [];
+  for (const property of ['zendori_ref', 'zendori_source']) {
+    try {
+      const propertyRes = await request(config, 'GET', `${TICKET_PROPERTIES_PATH}/${property}`);
+      if (propertyRes.status === 404) {
+        missingProperties.push(property);
+      } else if (!isSuccess(propertyRes.status)) {
+        return {
+          ok: false,
+          detail: `Custom Property "${property}" nicht prüfbar (Status ${propertyRes.status}).`,
+        };
+      }
+    } catch (error) {
+      return { ok: false, detail: `Custom Properties nicht prüfbar: ${errorMessage(error)}` };
+    }
+  }
+  if (missingProperties.length > 0) {
+    return {
+      ok: false,
+      detail: `Token gültig, aber Custom Properties fehlen: ${missingProperties.join(', ')} — in den Einstellungen „Custom Properties anlegen" ausführen.`,
+    };
+  }
+
+  return { ok: true, detail: 'Token gültig, Pipelines erreichbar, Custom Properties vorhanden.' };
 }
 
 export function createHubSpotSink(config: HubSpotConfig): TicketSink {

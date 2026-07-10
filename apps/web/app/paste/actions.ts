@@ -170,8 +170,15 @@ export async function createTicketFromPaste(formData: FormData): Promise<void> {
     redirect(`/paste?msg=${messageId}&fehler=kontakt`);
   }
 
+  // Double-submit guard: once a ticket (or a running pipeline) exists for
+  // this paste message, a second click must not start a parallel chain.
   const admin = createAdminClient();
-  const message = await getMessage(messageId, admin);
+  const existingMessage = await getMessage(messageId, admin);
+  if (['ticket_created', 'attached_to_existing', 'spam'].includes(existingMessage.status)) {
+    redirect(`/nachricht/${messageId}`);
+  }
+
+  const message = existingMessage;
   if (message.channel !== 'paste') {
     throw new Error('createTicketFromPaste only accepts paste messages');
   }

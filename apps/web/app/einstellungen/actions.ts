@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import {
@@ -428,7 +429,16 @@ export async function erzeugeFormKey(formData: FormData): Promise<void> {
   );
   revalidatePath('/einstellungen');
   // The clear-text key is shown exactly once via the query param (§10.1).
-  redirect(`/einstellungen?neuer_key=${encodeURIComponent(key)}#form-keys`);
+  // Short-lived cookie instead of a query param: keys in GET URLs land in
+  // request logs, the Location header and browser history.
+  const cookieStore = await cookies();
+  cookieStore.set('zendori_neuer_form_key', key, {
+    maxAge: 60,
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/einstellungen',
+  });
+  redirect('/einstellungen#form-keys');
 }
 
 export async function schalteFormKey(id: string, active: boolean): Promise<void> {

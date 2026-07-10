@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { loadServerEnv } from '@zendori/core';
@@ -150,7 +151,9 @@ export default async function EinstellungenPage({
   const fehlerKey = first(params.fehler);
   const fehlermeldung =
     fehlerKey && Object.hasOwn(FEHLERMELDUNGEN, fehlerKey) ? FEHLERMELDUNGEN[fehlerKey] : undefined;
-  const neuerKey = first(params.neuer_key);
+  // New form API key arrives via short-lived cookie (never via URL).
+  const cookieStore = await cookies();
+  const neuerKey = cookieStore.get('zendori_neuer_form_key')?.value ?? null;
   const bearbeitenId = first(params.bearbeiten);
 
   const [settings, mailboxesRes, apiKeysRes, cacheRes] = await Promise.all([

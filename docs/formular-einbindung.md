@@ -77,14 +77,18 @@ Alle Fehlermeldungen sind deutschsprachig und können dem Nutzer direkt angezeig
     var form = document.getElementById('kontakt-formular');
     var status = document.getElementById('kontakt-status');
 
+    // Eine request_id pro AUSFÜLLVORGANG (nicht pro Klick!): erst dadurch ist
+    // der erneute Absende-Klick nach einem Fehler wirklich idempotent. Nach
+    // erfolgreichem Versand wird sie für die nächste Nachricht erneuert.
+    var requestId = crypto.randomUUID();
+
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
       status.textContent = 'Wird gesendet …';
 
       // Alle Formularfelder 1:1 übernehmen — kein Feld-Mapping nötig.
       var payload = Object.fromEntries(new FormData(form));
-      // Macht Wiederholungsversuche idempotent (kein Doppel-Ticket bei Retry).
-      payload.request_id = crypto.randomUUID();
+      payload.request_id = requestId;
 
       try {
         var response = await fetch(ENDPOINT, {
@@ -99,6 +103,7 @@ Alle Fehlermeldungen sind deutschsprachig und können dem Nutzer direkt angezeig
         if (response.status === 202) {
           status.textContent = 'Vielen Dank! Ihre Nachricht wurde übermittelt.';
           form.reset();
+          requestId = crypto.randomUUID(); // nächste Nachricht = neue ID
           return;
         }
 
